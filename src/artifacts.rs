@@ -1,6 +1,7 @@
 use crate::winapi::*;
 use std::ffi::OsString;
 use std::fs;
+use std::io::Read;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
@@ -66,8 +67,10 @@ const SUSPICIOUS_KEYWORDS: &[&str] = &[
     "whiteout", "sloth", "doomsday", "koid", "itami", "mango", "haru",
     "raven", "liquidbounce", "rise", "novoline", "tenacity", "augustus",
     "future", "rusherhack", "boze", "meteor", "wurst", "aristois",
-    "processhacker", "kprocesshacker", "cheatengine", "autoclicker", "fastclicker",
-    "cleaner", "usn_clean", "journal_wipe"
+    "cyemer", "imnotcheatinn", "vengeance", "meowclient", "meowclientfucker",
+    "rust_loader", "capcom", "kdmapper", "processhacker", "kprocesshacker", "cheatengine",
+    "autoclicker", "fastclicker", "cleaner", "usn_clean", "journal_wipe",
+    "maceattackassistance", "cartcore", "pearl-catcher", "instantshield"
 ];
 
 fn to_wide_null(s: &str) -> Vec<u16> {
@@ -201,6 +204,50 @@ pub fn scan_prefetch() -> Vec<ArtifactHit> {
     hits
 }
 
+fn inspect_pe_file(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let mut buffer = [0u8; 4096];
+    let n = file.read(&mut buffer).ok()?;
+    if n < 0x40 || buffer[0] != b'M' || buffer[1] != b'Z' {
+        return None;
+    }
+    let e_lfanew = u32::from_le_bytes(buffer[0x3C..0x40].try_into().ok()?) as usize;
+    if e_lfanew + 24 >= n || &buffer[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return None;
+    }
+    let num_sections = u16::from_le_bytes(buffer[e_lfanew + 6..e_lfanew + 8].try_into().ok()?) as usize;
+    let opt_hdr_size = u16::from_le_bytes(buffer[e_lfanew + 20..e_lfanew + 22].try_into().ok()?) as usize;
+    let sec_table_offset = e_lfanew + 24 + opt_hdr_size;
+
+    let mut has_zero_raw_code = false;
+    let mut non_standard_sections = Vec::new();
+
+    for i in 0..num_sections {
+        let sec_offset = sec_table_offset + i * 40;
+        if sec_offset + 40 > n {
+            break;
+        }
+        let name_bytes = &buffer[sec_offset..sec_offset + 8];
+        let name = String::from_utf8_lossy(name_bytes).trim_matches('\0').to_string();
+        let raw_size = u32::from_le_bytes(buffer[sec_offset + 16..sec_offset + 20].try_into().ok()?);
+
+        if (name == ".text" || name == ".rdata") && raw_size == 0 {
+            has_zero_raw_code = true;
+        }
+        if name.contains('&') || name.contains('\\') || name.contains('"') || name.starts_with(".vmp") || name.starts_with(".themida") {
+            non_standard_sections.push(name);
+        }
+    }
+
+    if has_zero_raw_code || !non_standard_sections.is_empty() {
+        return Some(format!(
+            "VMProtect/Themida Crypter Signature (Zero-raw standard code: {}, Packed non-standard sections: {:?})",
+            has_zero_raw_code, non_standard_sections
+        ));
+    }
+    None
+}
+
 pub fn scan_temp_and_downloads() -> Vec<ArtifactHit> {
     let mut hits = Vec::new();
 
@@ -215,25 +262,54 @@ pub fn scan_temp_and_downloads() -> Vec<ArtifactHit> {
     for dir in paths_to_check {
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
+                let path = entry.path();
                 let name = entry.file_name().to_string_lossy().to_string();
                 let lower = name.to_lowercase();
 
-                let is_target_ext = lower.ends_with(".jar")
-                    || lower.ends_with(".exe")
-                    || lower.ends_with(".dll")
-                    || lower.ends_with(".bat")
-                    || lower.ends_with(".ps1");
+                if path.is_file() {
+                    let is_target_ext = lower.ends_with(".jar")
+                        || lower.ends_with(".exe")
+                        || lower.ends_with(".dll")
+                        || lower.ends_with(".bat")
+                        || lower.ends_with(".ps1");
 
-                if is_target_ext {
-                    for &kw in SUSPICIOUS_KEYWORDS {
-                        if lower.contains(kw) {
+                    if is_target_ext {
+                        for &kw in SUSPICIOUS_KEYWORDS {
+                            if lower.contains(kw) {
+                                hits.push(ArtifactHit {
+                                    source: format!("File System: {:?}", dir),
+                                    detected_item: name.clone(),
+                                    details: format!("Matched keyword '{}' in executable/script", kw),
+                                    severity: "SUSPICIOUS".to_string(),
+                                });
+                                break;
+                            }
+                        }
+
+                        // Inspect PE Header for commercial crypter / VMProtect / Themida packing
+                        if lower.ends_with(".exe") || lower.ends_with(".dll") {
+                            if let Some(crypter_details) = inspect_pe_file(&path) {
+                                hits.push(ArtifactHit {
+                                    source: format!("Forensics: {:?}", dir),
+                                    detected_item: name.clone(),
+                                    details: crypter_details,
+                                    severity: "FATAL: Obfuscated Cheat Binary".to_string(),
+                                });
+                            }
+                        }
+                    }
+                } else if path.is_dir() {
+                    // Check for cheat loader directories (e.g. loader/map.exe, imgui.ini)
+                    if lower.contains("loader") || lower.contains("cheat") {
+                        let map_exe = path.join("loader\\map.exe");
+                        let imgui = path.join("loader\\usermode\\imgui.ini");
+                        if map_exe.exists() || imgui.exists() {
                             hits.push(ArtifactHit {
-                                source: format!("File System: {:?}", dir),
+                                source: format!("Cheat Suite Folder: {:?}", dir),
                                 detected_item: name.clone(),
-                                details: format!("Matched keyword '{}' in executable/script", kw),
-                                severity: "SUSPICIOUS".to_string(),
+                                details: "Kernel/Usermode cheat suite (map.exe driver mapper + ImGui overlay configuration)".to_string(),
+                                severity: "FATAL: Cheat Loader Suite".to_string(),
                             });
-                            break;
                         }
                     }
                 }
