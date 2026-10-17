@@ -21,7 +21,11 @@ if ($localExe -ne "") {
     Write-Host "[*] Launching local OmniSS binary..." -ForegroundColor Green
     & $localExe
 } else {
-    $destPath = "$env:TEMP\OmniSS.exe"
+    $workDir = "$env:USERPROFILE\.omniss"
+    if (-not (Test-Path $workDir)) {
+        New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+    }
+    $destPath = "$workDir\OmniSS.exe"
     $downloadUrl = "https://raw.githubusercontent.com/ohsogalacy-del/OmniSS/main/omniss.exe"
     
     Write-Host "[*] Fetching OmniSS scanner from GitHub..." -ForegroundColor Cyan
@@ -29,10 +33,14 @@ if ($localExe -ne "") {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
         $webClient = New-Object System.Net.WebClient
         $webClient.DownloadFile($downloadUrl, $destPath)
+        
+        # Strip Mark-of-the-Web (MOTW) to avoid Application Control / SmartScreen blocks
+        Unblock-File -Path $destPath -ErrorAction SilentlyContinue
+        
         Write-Host "[+] Download complete. Starting scan..." -ForegroundColor Green
         & $destPath
     } catch {
-        Write-Host "[!] Failed to fetch scanner binary: $_" -ForegroundColor Red
+        Write-Host "[!] Failed to run scanner: $_" -ForegroundColor Red
         Pause
     }
 }
