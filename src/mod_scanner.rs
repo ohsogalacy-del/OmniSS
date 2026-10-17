@@ -24,6 +24,7 @@ const CANONICAL_MOD_WHITELIST: &[(&str, &str)] = &[
     ("iris", "net.irisshaders.iris"),
     ("cloth-config", "me.shedaniel.clothconfig2"),
     ("cloth-config2", "me.shedaniel.clothconfig2"),
+    ("cloth-config-v2", "me.shedaniel.clothconfig2"),
     ("viafabricplus", "de.florianmichael.viafabricplus"),
     ("viaversion", "com.viaversion.viaversion"),
     ("viabackwards", "com.viaversion.viabackwards"),
@@ -260,11 +261,24 @@ const CHEAT_SIGNATURE_RULES: &[(&str, &str, u32, &str)] = &[
         80,
         "Synthetically forces attackKey down via automation thread",
     ),
+    // --- Remote Payload Droppers & In-Memory HWID Loaders ---
     (
-        "Synthetic Click / Spoofing",
-        "java/awt/Robot",
-        75,
-        "Uses OS-level Java Robot to bypass Minecraft input handlers",
+        "Remote HWID Dropper / Loader",
+        "net/fabricmc/loader/impl/launch/FabricLauncherBase",
+        95,
+        "Accesses raw Fabric classloader to inject dynamic in-memory bytecode",
+    ),
+    (
+        "Remote HWID Dropper / Loader",
+        "oshi/PlatformEnum",
+        90,
+        "Hardware ID / OS fingerprinting query routine in Fabric mod",
+    ),
+    (
+        "Remote HWID Dropper / Loader",
+        "oshi/util/tuples/Quartet",
+        90,
+        "Hardware ID tuple inspection routine",
     ),
 ];
 
@@ -283,6 +297,12 @@ pub fn scan_mods_directory() -> Vec<ModScanResult> {
         let feather_mods = PathBuf::from(&appdata).join(".feather\\user-mods");
         if feather_mods.exists() {
             mods_paths.push(feather_mods);
+        }
+
+        // Modrinth App profiles
+        let modrinth_mods = PathBuf::from(&appdata).join("ModrinthApp\\profiles");
+        if modrinth_mods.exists() {
+            mods_paths.push(modrinth_mods);
         }
     }
 
@@ -397,6 +417,29 @@ fn audit_single_jar(jar_path: &Path) -> Option<ModScanResult> {
             }
             break;
         }
+    }
+
+    // Check for Remote HWID Dropper / Loader (e.g. fabric-rendering-indigo-v2.jar / "fix")
+    let has_oshi = all_filenames.iter().any(|f| {
+        let l = f.to_lowercase();
+        l.contains("oshi") || l.contains("platformenum") || l.contains("sysfs") || l.contains("iokit")
+    });
+    let has_single_letter_classes = all_filenames.iter().filter(|f| {
+        f.ends_with(".class") && f.len() <= 7 && !f.contains('/')
+    }).count() >= 3;
+    let is_prelaunch = all_filenames.iter().any(|f| f == "Init.class") || mod_id == "fix";
+
+    if (has_oshi || is_prelaunch) && has_single_letter_classes {
+        is_trojan = true;
+        total_score = 100;
+        hits.push(HeuristicHit {
+            category: "FATAL: HWID-Locked Remote Cheat Dropper".to_string(),
+            weight: 100,
+            description: format!(
+                "Mod '{}' is an obfuscated PreLaunch HWID remote payload dropper (fingerprints hardware to download/decrypt memory cheat)",
+                mod_id
+            ),
+        });
     }
 
     // If verified canonical mod with NO trojan payload, return clean 0% immediately
