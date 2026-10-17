@@ -1,6 +1,6 @@
 # OmniSS Screenshare One-Liner Execution Script
 # Usage in CMD / Run:
-# powershell -ep bypass -c "irm https://raw.githubusercontent.com/YOUR_USERNAME/OmniSS/main/run.ps1 | iex"
+# powershell -ep bypass -c "irm https://raw.githubusercontent.com/ohsogalacy-del/OmniSS/main/run.ps1 | iex"
 
 $ErrorActionPreference = "Stop"
 
@@ -24,7 +24,7 @@ if (Test-Path $localExe) {
     & $localExe
 } else {
     # Replace URL below with your GitHub release or raw direct binary link
-    $downloadUrl = "https://github.com/YOUR_USERNAME/OmniSS/releases/latest/download/omniss.exe"
+    $downloadUrl = "https://github.com/ohsogalacy-del/OmniSS/releases/latest/download/omniss.exe"
     
     Write-Host "[*] Fetching OmniSS scanner..." -ForegroundColor Cyan
     try {
