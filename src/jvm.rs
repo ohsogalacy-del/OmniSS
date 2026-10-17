@@ -200,27 +200,32 @@ pub fn scan_jvm_memory(pid: DWORD, process_name: &str) -> JvmScanResult {
                         });
                     }
 
-                    // Scan memory pages for known cheat string signatures (limit scan chunk to 4MB max per page to prevent hang)
-                    let read_size = mbi.RegionSize.min(4 * 1024 * 1024);
-                    let mut buffer: Vec<u8> = vec![0u8; read_size];
-                    let mut bytes_read: SIZE_T = 0;
+                    // Only scan memory pages likely to contain injected cheat payloads (executable pages or small private allocations)
+                    // Skip multi-gigabyte Java Garbage Collector heap arrays for maximum speed
+                    let should_scan_strings = is_executable || (mbi.Type == MEM_PRIVATE && mbi.RegionSize <= 2 * 1024 * 1024);
 
-                    if ReadProcessMemory(
-                        h_process,
-                        mbi.BaseAddress,
-                        buffer.as_mut_ptr() as *mut c_void,
-                        read_size,
-                        &mut bytes_read,
-                    ) != 0 && bytes_read > 0 {
-                        let slice = &buffer[..bytes_read];
-                        for &(cheat, pattern) in SIGNATURE_PATTERNS {
-                            let pat_bytes = pattern.as_bytes();
-                            if slice.windows(pat_bytes.len()).any(|w| w == pat_bytes) {
-                                sig_hits.push(SignatureHit {
-                                    address: mbi.BaseAddress as usize,
-                                    cheat_name: cheat.to_string(),
-                                    matched_pattern: pattern.to_string(),
-                                });
+                    if should_scan_strings {
+                        let read_size = mbi.RegionSize.min(1024 * 1024);
+                        let mut buffer: Vec<u8> = vec![0u8; read_size];
+                        let mut bytes_read: SIZE_T = 0;
+
+                        if ReadProcessMemory(
+                            h_process,
+                            mbi.BaseAddress,
+                            buffer.as_mut_ptr() as *mut c_void,
+                            read_size,
+                            &mut bytes_read,
+                        ) != 0 && bytes_read > 0 {
+                            let slice = &buffer[..bytes_read];
+                            for &(cheat, pattern) in SIGNATURE_PATTERNS {
+                                let pat_bytes = pattern.as_bytes();
+                                if slice.windows(pat_bytes.len()).any(|w| w == pat_bytes) {
+                                    sig_hits.push(SignatureHit {
+                                        address: mbi.BaseAddress as usize,
+                                        cheat_name: cheat.to_string(),
+                                        matched_pattern: pattern.to_string(),
+                                    });
+                                }
                             }
                         }
                     }

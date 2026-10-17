@@ -10,16 +10,17 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
-:: Run pre-compiled binary if available, otherwise build
-if exist "target\release\omniss.exe" (
-    "target\release\omniss.exe"
+if exist "omni.exe" (
+    "omni.exe"
+) else if exist "target\release\omni.exe" (
+    "target\release\omni.exe"
 ) else if exist "omniss.exe" (
     "omniss.exe"
 ) else (
     echo [*] Binary not found. Building OmniSS from source...
-    cargo build --release
+    cargo build --release --bin omni
     if %errorLevel% equ 0 (
-        "target\release\omniss.exe"
+        "target\release\omni.exe"
     ) else (
         echo [!] Build failed. Please verify Rust is installed.
         pause
