@@ -6,10 +6,58 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct ArtifactHit {
-    pub source: String,       // "BAM Registry", "Prefetch (.pf)", "Temp/Downloads"
+    pub source: String,       // "BAM Registry", "Prefetch (.pf)", "USBSTOR (Flash Drive)", "Temp/Downloads"
     pub detected_item: String,
     pub details: String,
     pub severity: String,     // "FATAL", "SUSPICIOUS"
+}
+
+pub fn scan_usb_disconnections() -> Vec<ArtifactHit> {
+    let mut hits = Vec::new();
+    let root_path = to_wide_null("SYSTEM\\CurrentControlSet\\Enum\\USBSTOR");
+
+    unsafe {
+        let mut h_root: HKEY = std::ptr::null_mut();
+        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, root_path.as_ptr(), 0, KEY_READ, &mut h_root) == 0 {
+            let mut subkey_idx = 0;
+            let mut subkey_name = [0u16; 256];
+
+            loop {
+                let mut name_len = 256 as DWORD;
+                let status = RegEnumKeyExW(
+                    h_root,
+                    subkey_idx,
+                    subkey_name.as_mut_ptr(),
+                    &mut name_len,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                );
+
+                if status != 0 {
+                    break;
+                }
+
+                let usb_device = OsString::from_wide(&subkey_name[..name_len as usize])
+                    .to_string_lossy()
+                    .to_string();
+
+                hits.push(ArtifactHit {
+                    source: "Hardware USBSTOR (External Storage Trace)".to_string(),
+                    detected_item: usb_device.clone(),
+                    details: "External flash drive hardware footprint recorded in system registry".to_string(),
+                    severity: "SUSPICIOUS (Audit External Device Usage)".to_string(),
+                });
+
+                subkey_idx += 1;
+            }
+
+            RegCloseKey(h_root);
+        }
+    }
+
+    hits
 }
 
 // Suspicious cheat keywords

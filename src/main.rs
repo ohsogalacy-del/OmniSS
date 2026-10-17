@@ -82,6 +82,10 @@ fn main() {
     println!("  -> Temp & Downloads checked: {} suspicious hits.", temp_hits.len());
     artifacts.extend(temp_hits);
 
+    let usb_hits = artifacts::scan_usb_disconnections();
+    println!("  -> USB Storage devices audited: {} external drive traces.", usb_hits.len());
+    artifacts.extend(usb_hits);
+
     for a in &artifacts {
         if a.severity.contains("FATAL") {
             println!("  \x1b[1;31m[!] [{}] {}\x1b[0m ({})", a.source, a.detected_item, a.details);
