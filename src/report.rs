@@ -11,6 +11,7 @@ pub struct ScanReportData {
     pub cleaner_hits: Vec<crate::cleaner::CleanerHit>,
     pub dns_hits: Vec<crate::network::DnsHit>,
     pub input_hits: Vec<crate::input::InputHit>,
+    pub mod_results: Vec<crate::mod_scanner::ModScanResult>,
 }
 
 pub fn generate_html_report(data: &ScanReportData) -> (PathBuf, String) {
@@ -18,10 +19,12 @@ pub fn generate_html_report(data: &ScanReportData) -> (PathBuf, String) {
         + data.jvm_results.iter().map(|j| j.unbacked_exec_regions.len() + j.signature_hits.len() + j.stream_proof_windows.len()).sum::<usize>()
         + data.artifacts.iter().filter(|a| a.severity.contains("FATAL")).count()
         + data.dns_hits.len()
-        + data.input_hits.iter().filter(|i| i.severity.contains("FATAL")).count();
+        + data.input_hits.iter().filter(|i| i.severity.contains("FATAL")).count()
+        + data.mod_results.iter().filter(|m| m.suspicion_score >= 80).count();
 
     let suspicious_count = data.artifacts.iter().filter(|a| a.severity.contains("SUSPICIOUS")).count()
-        + data.input_hits.iter().filter(|i| i.severity.contains("SUSPICIOUS")).count();
+        + data.input_hits.iter().filter(|i| i.severity.contains("SUSPICIOUS")).count()
+        + data.mod_results.iter().filter(|m| m.suspicion_score >= 40 && m.suspicion_score < 80).count();
 
     let (verdict_class, verdict_title, verdict_desc) = if fatal_count > 0 {
         ("verdict-fatal", "FATAL: CHEAT / CLEANER DETECTED", "Definitive evidence of cheat injection, stream-proof overlay, or anti-forensic cleaner detected.")
@@ -135,6 +138,35 @@ pub fn generate_html_report(data: &ScanReportData) -> (PathBuf, String) {
         input_html.push_str("</ul>");
     }
 
+    let mut mods_html = String::new();
+    if data.mod_results.is_empty() {
+        mods_html.push_str("<p class='clean-note'>No suspicious combat cores or macro mods detected in .minecraft/mods.</p>");
+    } else {
+        mods_html.push_str("<ul>");
+        for m in &data.mod_results {
+            if m.suspicion_score > 0 {
+                let badge_cls = if m.suspicion_score >= 80 {
+                    "badge-fatal"
+                } else if m.suspicion_score >= 50 {
+                    "badge-suspicious"
+                } else {
+                    "clean-note"
+                };
+
+                let triggers = m.matched_heuristics.iter()
+                    .map(|h| format!("{}: {}", h.category, h.description))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+
+                mods_html.push_str(&format!(
+                    "<li><span class='badge {}'>{}% SUSPICIOUS</span> <strong>{}</strong> &mdash; <code>{}</code></li>",
+                    badge_cls, m.suspicion_score, m.jar_name, triggers
+                ));
+            }
+        }
+        mods_html.push_str("</ul>");
+    }
+
     let raw_html = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -202,6 +234,11 @@ pub fn generate_html_report(data: &ScanReportData) -> (PathBuf, String) {
             {}
         </div>
 
+        <div class="section">
+            <h2>6. Minecraft Mods (.jar) & Combat Cores / Assist Macros</h2>
+            {}
+        </div>
+
         <div class="seal-box">
             <strong>Cryptographic Verification Seal (SHA-256):</strong><br>
             <code>##INTEGRITY_SEAL##</code><br>
@@ -212,7 +249,7 @@ pub fn generate_html_report(data: &ScanReportData) -> (PathBuf, String) {
 </html>"#,
         data.hostname, data.username, data.timestamp,
         verdict_class, verdict_title, verdict_desc,
-        jvm_html, cleaner_html, artifacts_html, dns_html, input_html
+        jvm_html, cleaner_html, artifacts_html, dns_html, input_html, mods_html
     );
 
     // Compute cryptographic SHA-256 seal

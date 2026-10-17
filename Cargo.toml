@@ -1,6 +1,6 @@
 [package]
 name = "omniss"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 authors = ["OmniSS Security Research"]
 description = "Industrial-grade Minecraft Screenshare & Memory Forensic Scanner"
@@ -9,6 +9,7 @@ description = "Industrial-grade Minecraft Screenshare & Memory Forensic Scanner"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [profile.release]
 opt-level = 3

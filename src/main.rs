@@ -2,6 +2,7 @@ mod artifacts;
 mod cleaner;
 mod input;
 mod jvm;
+mod mod_scanner;
 mod network;
 mod report;
 mod winapi;
@@ -116,6 +117,29 @@ fn main() {
         }
     }
 
+    // 6. Minecraft Mods (.jar) Heuristic Audit (Mace Core, Cart Core, Click Spoofing)
+    println!("\n\x1b[35m[6/6] Auditing Minecraft Mods (.jar) for Combat Cores & Macros...\x1b[0m");
+    let mod_results = mod_scanner::scan_mods_directory();
+    let suspicious_mods: Vec<_> = mod_results.iter().filter(|m| m.suspicion_score > 0).collect();
+
+    if suspicious_mods.is_empty() {
+        println!("  \x1b[32m[+] No suspicious Mace/Cart cores or macro mods found in mods directory.\x1b[0m");
+    } else {
+        for m in suspicious_mods {
+            if m.suspicion_score >= 80 {
+                println!("  \x1b[1;31m[!] FATAL COMBAT CORE ({}% SUSPICIOUS): {}\x1b[0m", m.suspicion_score, m.jar_name);
+            } else if m.suspicion_score >= 50 {
+                println!("  \x1b[1;33m[-] HIGH SUSPICION ({}% SUSPICIOUS): {}\x1b[0m", m.suspicion_score, m.jar_name);
+            } else {
+                println!("  \x1b[36m[+] Utility Mod ({}% Suspicion): {}\x1b[0m", m.suspicion_score, m.jar_name);
+            }
+
+            for h in &m.matched_heuristics {
+                println!("      -> [{}] {}", h.category, h.description);
+            }
+        }
+    }
+
     // Generate Final Signed Report
     let report_data = report::ScanReportData {
         timestamp,
@@ -126,6 +150,7 @@ fn main() {
         cleaner_hits,
         dns_hits,
         input_hits,
+        mod_results,
     };
 
     println!("\n\x1b[36m======================================================================\x1b[0m");
@@ -138,7 +163,8 @@ fn main() {
         + report_data.jvm_results.iter().map(|j| j.unbacked_exec_regions.len() + j.signature_hits.len() + j.stream_proof_windows.len()).sum::<usize>()
         + report_data.artifacts.iter().filter(|a| a.severity.contains("FATAL")).count()
         + report_data.dns_hits.len()
-        + report_data.input_hits.iter().filter(|i| i.severity.contains("FATAL")).count();
+        + report_data.input_hits.iter().filter(|i| i.severity.contains("FATAL")).count()
+        + report_data.mod_results.iter().filter(|m| m.suspicion_score >= 80).count();
 
     if fatal_total > 0 {
         println!("\x1b[1;41;37m                                                                      \x1b[0m");
